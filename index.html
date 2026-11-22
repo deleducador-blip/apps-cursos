@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="pt-BR"><head><meta charset="utf-8"><title>Apps do Curso · Rede CUCA Mondubim</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@800;900&family=Hanken+Grotesk:wght@400;500;700&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#131722;--surface:#1e2436;--fg:#f4f5f8;--muted:#adb5c7;--line:#363f57;--a:#f6a65a;--b:#4fc6e0;color-scheme:dark}
+@media(prefers-color-scheme:light){:root{--bg:#f3f5fa;--surface:#fff;--fg:#151a2b;--muted:#4c556b;--line:#c9d0de;--a:#b5470d;--b:#0a7288;color-scheme:light}}
+*{box-sizing:border-box;margin:0}
+body{background:var(--bg);color:var(--fg);font:400 17px/1.5 "Hanken Grotesk",system-ui,sans-serif;padding:16px 16px 56px}
+main{max-width:560px;margin:0 auto;display:grid;gap:16px}
+header{padding:24px 4px 4px}
+.tag{font:500 12px/1 "JetBrains Mono",ui-monospace,monospace;text-transform:uppercase;letter-spacing:.08em;color:var(--muted)}
+h1{font:900 clamp(48px,15vw,84px)/.88 "Big Shoulders Display",Impact,sans-serif;text-transform:uppercase;margin:12px 0}
+.lead{color:var(--muted);max-width:34ch}
+a.app{display:grid;gap:6px;text-decoration:none;color:var(--fg);background:var(--surface);border:2px solid var(--line);border-left:10px solid var(--c);border-radius:16px;padding:18px 18px 20px;min-height:96px;touch-action:manipulation}
+a.app:hover,a.app:focus-visible{border-color:var(--c);outline:3px solid var(--fg);outline-offset:2px}
+a.app .tag{color:var(--c)}
+a.app strong{font:900 clamp(34px,10vw,48px)/.95 "Big Shoulders Display",Impact,sans-serif;text-transform:uppercase;color:var(--c)}
+a.app span.d{color:var(--muted);font-size:15px}
+a.app.fab{--c:var(--a)}
+a.app.bat{--c:var(--b)}
+</style></head><body>
+<main>
+<header><span class="tag">Rede CUCA Mondubim · Arte para Jogos</span>
+<h1>Apps do curso</h1>
+<p class="lead">Escolha um app, crie o seu som ou a sua música e baixe o arquivo para usar no seu jogo.</p></header>
+
+<a class="app fab" href="fabrica-de-sons.html"><span class="tag">Aula 8</span><strong>Fábrica de Sons</strong><span class="d">Crie efeitos sonoros para o seu jogo: moeda, pulo, explosão e sons do bairro.</span></a>
+
+<a class="app bat" href="batida-16.html"><span class="tag">Aula 9</span><strong>Batida 16</strong><span class="d">Monte a música do seu jogo: ritmo, baixo e melodia em 16 passos.</span></a>
+</main>
+</body></html>
