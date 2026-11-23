@@ -113,7 +113,9 @@ body[data-view=notas] .cell[data-note]:not([data-note="-1"]){background:var(--nc
 <p class="small" id="lennote">Para quem quer um desafio: a música passa de 16 para 32 passos.</p>
 <p class="small">Bumbo, caixa e chimbal: toque para ligar e desligar. Baixo e melodia: cada toque troca a nota. Para uma nota durar mais, segure nela e arraste para o lado. Toque na parte esticada para encurtar. Toque no nome de uma linha (Baixo, Melodia...) para silenciar. Segure o dedo (ou o botão esquerdo do mouse) num quadrado para abrir o menu. O botão direito do mouse apaga o quadrado na hora.</p>
 <div class="field"><div class="top"><label for="bpm">Velocidade</label><output id="bo"></output></div><input id="bpm" type="range" min="70" max="180" value="100"><div class="ends"><span>devagar</span><span>rápido</span></div></div>
-<div class="field"><div class="top"><label for="vol">Volume</label><output id="vo"></output></div><input id="vol" type="range" min="0" max="100" value="60"></div>
+<div class="field"><div class="top"><label for="volm">Volume da melodia</label><output id="vmo"></output></div><input id="volm" type="range" min="0" max="100" value="60"></div>
+<div class="field"><div class="top"><label for="vola">Volume do acompanhamento</label><output id="vao"></output></div><input id="vola" type="range" min="0" max="100" value="60"></div>
+<p class="small">Acompanhamento = bumbo, caixa, chimbal e baixo. O equilíbrio entre os dois volumes vai junto para a música baixada.</p>
 <p class="small">Sem som? Aumente o volume de mídia do celular e, no iPhone, tire do modo silencioso.</p>
 </section>
 
@@ -140,31 +142,32 @@ function floatToWav(f32, sr){
 function slug(s,max){return String(s||'').normalize('NFD').replace(/[̀-ͯ]/g,'').toLowerCase().replace(/[^a-z0-9]+/g,'-').slice(0,max||16).replace(/^-+|-+$/g,'');}
 
 /* áudio: volume começa em 60% e passa por um limitador, para nunca estourar */
-let AC=null, MASTER=null;
+let AC=null, MASTER=null, LEADBUS=null, ACCBUS=null;
 function volGain(p){return Math.pow(Math.max(0,Math.min(100,+p||0))/100,1.5);}
-function ensureAudio(volPct){
+function ensureAudio(volLead,volAcc){
   if(!AC){
     const C=window.AudioContext||window.webkitAudioContext;
-    AC=new C();MASTER=AC.createGain();
+    AC=new C();MASTER=AC.createGain();LEADBUS=AC.createGain();ACCBUS=AC.createGain();LEADBUS.connect(MASTER);ACCBUS.connect(MASTER);
     const comp=AC.createDynamicsCompressor();
     comp.threshold.value=-18;comp.knee.value=20;comp.ratio.value=8;comp.attack.value=0.003;comp.release.value=0.15;
     MASTER.connect(comp);comp.connect(AC.destination);
     try{if(navigator.audioSession)navigator.audioSession.type='playback';}catch(e){}
   }
   if(AC.state!=='running'){try{const r=AC.resume();if(r&&r.catch)r.catch(function(){});}catch(e){}}
-  MASTER.gain.value=volGain(volPct==null?60:volPct);
+  MASTER.gain.value=1;
+  LEADBUS.gain.value=volGain(volLead==null?60:volLead);ACCBUS.gain.value=volGain(volAcc==null?60:volAcc);
   return AC;
 }
-function setVolume(p){if(MASTER)MASTER.gain.setTargetAtTime(volGain(p),AC.currentTime,0.015);}
+function setVolume(which,p){const b=which==='lead'?LEADBUS:ACCBUS;if(b)b.gain.setTargetAtTime(volGain(p),AC.currentTime,0.015);}
 function toAudioBuffer(f32){
   const b=AC.createBuffer(1,f32.length,SR);
   if(b.copyToChannel)b.copyToChannel(f32,0);else b.getChannelData(0).set(f32);
   return b;
 }
-function playAudioBuffer(buf,when,gain){
+function playAudioBuffer(buf,when,gain,dest){
   const s=AC.createBufferSource();s.buffer=buf;
   const g=AC.createGain();g.gain.value=gain==null?1:gain;
-  s.connect(g);g.connect(MASTER);s.start(when||0);return s;
+  s.connect(g);g.connect(dest||MASTER);s.start(when||0);return s;
 }
 
 /* salvar: o botão Baixar faz o download do .wav direto, sem menu de compartilhar.
@@ -291,21 +294,22 @@ function getVoice(track,mood,row,bpm,voice,len){
 const GAIN={kick:.9,snare:.55,hat:.3,bass:.7,lead:.35};
 /* monta o loop (voltas); as pontas dos sons voltam ao começo: sem emenda.
    normalize=true (arquivo exportado): sempre no mesmo volume */
-function renderLoop(S,voltas,normalize,mute){
-  const N=S.len===32?32:16;mute=mute||{};
+function renderLoop(S,voltas,normalize,mute,mix,raw){
+  const N=S.len===32?32:16;mute=mute||{};mix=mix||{lead:1,acc:1};
+  const mg=function(k){return k==='lead'?mix.lead:mix.acc;};
   const stepS=Math.round(60/S.bpm/4*SR),total=voltas*N*stepS,out=new Float32Array(total);
   const add=function(buf,off,g){for(let i=0;i<buf.length;i++)out[(off+i)%total]+=buf[i]*g;};
   for(let b=0;b<voltas;b++)for(let s=0;s<N;s++){
     const off=(b*N+s)*stepS;
-    ['kick','snare','hat'].forEach(function(k){if(!mute[k]&&S[k][s])add(getVoice(k,S.mood,0,S.bpm),off,GAIN[k]);});
+    ['kick','snare','hat'].forEach(function(k){if(!mute[k]&&S[k][s]&&mg(k)>0)add(getVoice(k,S.mood,0,S.bpm),off,GAIN[k]*mg(k));});
     ['bass','lead'].forEach(function(k){
-      if(mute[k]||S[k][s]<0)return;
+      if(mute[k]||S[k][s]<0||mg(k)<=0)return;
       let L=1;while(s+L<N&&S[k][s+L]===-2)L++;   // quantos passos a nota dura
-      add(getVoice(k,S.mood,S[k][s],S.bpm,S.voice,L),off,GAIN[k]);
+      add(getVoice(k,S.mood,S[k][s],S.bpm,S.voice,L),off,GAIN[k]*mg(k));
     });
   }
   let pk=0;for(let i=0;i<total;i++)pk=Math.max(pk,Math.abs(out[i]));
-  const g=normalize?(pk>0?0.89/pk:1):(pk>0.95?0.95/pk:1);
+  const g=raw?1:(normalize?(pk>0?0.89/pk:1):(pk>0.95?0.95/pk:1));
   if(g!==1)for(let i=0;i<total;i++)out[i]*=g;
   return out;
 }
@@ -323,8 +327,8 @@ const VOICE_LABELS=[['retro','Retrô','Videogame de 8 bits.'],['flauta','Flauta'
 const RITMOS=[['baiao','Baião','Nordeste, balanço de forró.'],['funk','Funk','Tamborzão carioca.'],['rap','Rap','Batida firme e mais lenta.'],['piseiro','Piseiro','Pisadinha, bem rápido.'],['game','Game','Música de fase de plataforma.']];
 let S=Object.assign({bpm:100,mood:'alegre',voice:'retro',len:16},emptySong()),name='',hist=[],saving=false,view='barras',menuEl=null,lpFlag=false,lastPT='mouse',fresh=false,drag=null;
 const muted={};   // trilhas silenciadas: só na tela, não vai para o arquivo salvo nem para o desfazer
-let playing=false,src=null,srcGain=null,t0=0,loopDur=0,raf=0,lastStep=-1;
-function persist(){try{localStorage.setItem(KEY,JSON.stringify({S:S,name:name,view:view,vol:+$('#vol').value}));}catch(e){}}
+let playing=false,srcs=[],t0=0,loopDur=0,raf=0,lastStep=-1;
+function persist(){try{localStorage.setItem(KEY,JSON.stringify({S:S,name:name,view:view,volM:+$('#volm').value,volA:+$('#vola').value}));}catch(e){}}
 function cleanSong(j){
   const o=Object.assign({bpm:100,mood:'alegre',voice:'retro',len:16},emptySong());
   const at=function(k,i){const a=j[k];return a.length>=32?a[i]:a[i%16];};   // música antiga de 16 passos: o 2º compasso nasce igual ao 1º
@@ -340,7 +344,9 @@ function restore(){
     const j=JSON.parse(localStorage.getItem(KEY)||'null');
     if(j&&j.S&&['kick','snare','hat','bass','lead'].every(function(k){return Array.isArray(j.S[k])&&(j.S[k].length===16||j.S[k].length===32);})){
       S=cleanSong(j.S);name=String(j.name||'').slice(0,24);view=j.view==='notas'?'notas':'barras';
-      if(j.vol!=null)$('#vol').value=Math.max(0,Math.min(100,+j.vol||0));
+      const cl=function(v){return Math.max(0,Math.min(100,+v||0));};   // música salva antes da divisão: o volume antigo vale para os dois
+      if(j.volM!=null)$('#volm').value=cl(j.volM);else if(j.vol!=null)$('#volm').value=cl(j.vol);
+      if(j.volA!=null)$('#vola').value=cl(j.volA);else if(j.vol!=null)$('#vola').value=cl(j.vol);
       return;
     }
   }catch(e){}
@@ -478,7 +484,7 @@ function refresh(){
   document.querySelectorAll('#view .btn').forEach(function(b){b.setAttribute('aria-pressed',String(b.dataset.v===view));});
   st.clima.show(MOODS.findIndex(function(x){return x[0]===S.mood;}));
   st.voz.show(VOICE_LABELS.findIndex(function(x){return x[0]===S.voice;}));
-  $('#bpm').value=S.bpm;$('#bo').textContent=S.bpm+' BPM';$('#vo').textContent=$('#vol').value+'%';$('#nm').value=name;
+  $('#bpm').value=S.bpm;$('#bo').textContent=S.bpm+' BPM';$('#vmo').textContent=$('#volm').value+'%';$('#vao').textContent=$('#vola').value+'%';$('#nm').value=name;
   $('#undo').disabled=!hist.length;
 }
 function eraseCell(b){
@@ -529,27 +535,34 @@ function openMenu(cell){
 document.addEventListener('pointerdown',function(e){if(menuEl&&!menuEl.contains(e.target))closeMenu();});
 document.addEventListener('keydown',function(e){if(e.key==='Escape')closeMenu();});
 window.addEventListener('scroll',closeMenu,{passive:true});
+function mutedAll(g){return g==='lead'?!!muted.lead:['kick','snare','hat','bass'].every(function(k){return muted[k];});}
+function mixNow(){return{lead:volGain(+$('#volm').value),acc:volGain(+$('#vola').value)};}
+function exportBuf(){return renderLoop(S,S.len===32?2:4,true,muted,mixNow());}
+function isSilent(f){for(let i=0;i<f.length;i++)if(f[i]!==0)return false;return true;}
 function preview(t,row){
-  ensureAudio(+$('#vol').value);
-  playAudioBuffer(toAudioBuffer(getVoice(t,S.mood,row,S.bpm,S.voice)),0,GAIN[t]);
+  ensureAudio(+$('#volm').value,+$('#vola').value);
+  playAudioBuffer(toAudioBuffer(getVoice(t,S.mood,row,S.bpm,S.voice)),0,GAIN[t],t==='lead'?LEADBUS:ACCBUS);
 }
-/* troca o loop sem estalo: o antigo some e o novo aparece em 12 ms, na mesma posição da volta */
+/* troca o loop sem estalo: o antigo some e o novo aparece em 12 ms, na mesma posição da volta.
+   Melodia e acompanhamento tocam em duas fontes sincronizadas, cada uma com o seu volume */
+function fadeOutSrcs(list,now){list.forEach(function(o){try{o.g.gain.cancelScheduledValues(now);o.g.gain.setValueAtTime(o.g.gain.value,now);o.g.gain.linearRampToValueAtTime(0,now+0.012);o.s.stop(now+0.02);}catch(e){}});}
 function startLoop(phase){
-  ensureAudio(+$('#vol').value);
-  const f=renderLoop(S,1,false,muted);loopDur=f.length/SR;
-  const now=AC.currentTime,ph=Math.max(0,Math.min(0.999,phase||0)),off=ph*loopDur;
-  const ns=AC.createBufferSource(),ng=AC.createGain();
-  ns.buffer=toAudioBuffer(f);ns.loop=true;ns.connect(ng);ng.connect(MASTER);
-  if(src){
-    try{srcGain.gain.cancelScheduledValues(now);srcGain.gain.setValueAtTime(srcGain.gain.value,now);srcGain.gain.linearRampToValueAtTime(0,now+0.012);src.stop(now+0.02);}catch(e){}
-    ng.gain.setValueAtTime(0,now);ng.gain.linearRampToValueAtTime(1,now+0.012);
-  }
-  ns.start(now,off);t0=now-off;src=ns;srcGain=ng;
+  ensureAudio(+$('#volm').value,+$('#vola').value);
+  const parts=[[renderLoop(S,1,false,muted,{lead:1,acc:0},true),LEADBUS],[renderLoop(S,1,false,muted,{lead:0,acc:1},true),ACCBUS]];
+  loopDur=parts[0][0].length/SR;
+  const now=AC.currentTime,ph=Math.max(0,Math.min(0.999,phase||0)),off=ph*loopDur,old=srcs,nova=[];
+  parts.forEach(function(p){
+    const ns=AC.createBufferSource(),ng=AC.createGain();
+    ns.buffer=toAudioBuffer(p[0]);ns.loop=true;ns.connect(ng);ng.connect(p[1]);
+    if(old.length){ng.gain.setValueAtTime(0,now);ng.gain.linearRampToValueAtTime(1,now+0.012);}
+    ns.start(now,off);nova.push({s:ns,g:ng});
+  });
+  if(old.length)fadeOutSrcs(old,now);
+  t0=now-off;srcs=nova;
 }
 function stopLoop(){
-  if(!src)return;const now=AC.currentTime;
-  try{srcGain.gain.cancelScheduledValues(now);srcGain.gain.setValueAtTime(srcGain.gain.value,now);srcGain.gain.linearRampToValueAtTime(0,now+0.012);src.stop(now+0.02);}catch(e){}
-  src=null;srcGain=null;
+  if(!srcs.length)return;
+  fadeOutSrcs(srcs,AC.currentTime);srcs=[];
 }
 function tick(){
   if(!playing)return;
@@ -591,7 +604,8 @@ $('#surp').addEventListener('click',function(){pushHist();S.lead=randomMelody();
   ['pointerup','pointercancel','blur','touchend'].forEach(function(ev){el.addEventListener(ev,function(){el._h=0;});});
   el.addEventListener('change',function(){el._h=0;changed();});
 })();
-$('#vol').addEventListener('input',function(){setVolume(+$('#vol').value);$('#vo').textContent=$('#vol').value+'%';persist();});
+$('#volm').addEventListener('input',function(){setVolume('lead',+$('#volm').value);$('#vmo').textContent=$('#volm').value+'%';persist();});
+$('#vola').addEventListener('input',function(){setVolume('acc',+$('#vola').value);$('#vao').textContent=$('#vola').value+'%';persist();});
 $('#nm').addEventListener('input',function(){name=$('#nm').value;persist();});
 $('#theme').addEventListener('click',function(){
   const r=document.documentElement,dark=r.dataset.theme?r.dataset.theme==='dark':!matchMedia('(prefers-color-scheme: light)').matches;
@@ -602,20 +616,25 @@ $('#share').addEventListener('click',async function(){
   const st=$('#status');st.textContent='';
   if(isEmptySong(S,muted)){st.textContent='Sua batida está vazia: ligue alguns quadrados antes de compartilhar.';return;}
   const base='batida-'+(slug(name,20)||'minha')+'-'+S.bpm+'bpm';
-  const r=await shareWav(base,floatToWav(renderLoop(S,S.len===32?2:4,true,muted)));
+  const buf=exportBuf();
+  if(isSilent(buf)){st.textContent='Com os volumes assim a música fica sem som. Aumente o volume da melodia ou do acompanhamento.';return;}
+  const r=await shareWav(base,floatToWav(buf));
   st.textContent=r==='share'?'Pronto! Escolha o WhatsApp ou outro app.':r==='nosupport'?'Este celular não abriu o compartilhamento. Use o player abaixo: toque nos três pontinhos e escolha "Baixar".':'';
 });
 $('#save').addEventListener('click',async function(){
   if(saving)return;
   const st=$('#status');st.textContent='';
   if(isEmptySong(S,muted)){st.textContent=TRACKS.some(function(t){return muted[t[0]];})?'Todas as linhas com som estão silenciadas ou vazias. Ligue alguma antes de baixar.':'Sua batida está vazia: ligue alguns quadrados antes de baixar.';return;}
+  const buf=exportBuf();
+  if(isSilent(buf)){st.textContent='Com os volumes assim a música fica sem som. Aumente o volume da melodia ou do acompanhamento.';return;}
   saving=true;const btn=$('#save');btn.disabled=true;
   const base='batida-'+(slug(name,20)||'minha')+'-'+S.bpm+'bpm';
   try{
-    const r=await saveWav(base,floatToWav(renderLoop(S,S.len===32?2:4,true,muted)));
+    const r=await saveWav(base,floatToWav(buf));
     const mudas=TRACKS.filter(function(t){return muted[t[0]];}).map(function(t){return t[1];});
+    const mx=mixNow();if(!mx.lead&&!mutedAll('lead'))mudas.push('Melodia');if(!mx.acc&&!mutedAll('acc'))mudas.push('Acompanhamento');
     st.textContent=r==='share'?'Escolha onde guardar a sua música.':r==='download'?'Baixou "'+base+'.wav". Veja na pasta Downloads do celular.':'';
-    if(mudas.length)st.textContent+=' Atenção: sem '+mudas.join(', ')+' (estavam silenciados).';
+    if(mudas.length)st.textContent+=' Atenção: sem '+mudas.join(', ')+' (silenciados ou com volume zero).';
   }catch(e){
     st.textContent='Não deu para baixar. Use o player abaixo: toque nos três pontinhos e escolha "Baixar".';
   }
