@@ -71,6 +71,7 @@ body[data-len="16"] .block.b2{display:none}
 body[data-view=notas] .cell[data-note]:not([data-note="-1"]){background:var(--nc)}
 
 .menu{position:fixed;z-index:20;background:var(--surface);border:2px solid var(--line2);border-radius:12px;padding:10px;display:grid;gap:8px;width:min(300px,calc(100vw - 16px));box-shadow:0 8px 28px rgba(0,0,0,.4)}
+.menu{max-height:calc(100vh - 16px);max-height:calc(100dvh - 16px);overflow-y:auto;overscroll-behavior:contain}
 .menu .notes{display:grid;grid-template-columns:repeat(5,1fr);gap:6px}
 .menu .btn{min-height:44px;padding:0 8px;font-size:15px;text-align:left}
 .menu .notes .btn{text-align:center;padding:0;background:var(--nc);border-color:var(--nc);color:#111}
@@ -122,9 +123,10 @@ body[data-view=notas] .cell[data-note]:not([data-note="-1"]){background:var(--nc
 <span class="sub">Ver as notas como</span>
 <div class="seg" id="view" role="group" aria-label="Como mostrar as notas"></div>
 <div id="grid"></div>
+<p class="status" id="clipst" aria-live="polite"></p>
 <div class="row"><button class="btn" id="len" type="button" aria-pressed="false">＋ Segundo compasso</button></div>
 <p class="small" id="lennote">Para quem quer um desafio: a música passa de 16 para 32 passos.</p>
-<p class="small">Bumbo, caixa e chimbal: toque para ligar e desligar. Baixo e melodia: cada toque troca a nota. Para uma nota durar mais, segure nela e arraste para o lado. Toque na parte esticada para encurtar. Toque no nome de uma linha (Baixo, Melodia...) para silenciar. Segure o dedo (ou o botão esquerdo do mouse) num quadrado para abrir o menu. O botão direito do mouse apaga o quadrado na hora.</p>
+<p class="small">Bumbo, caixa e chimbal: toque para ligar e desligar. Baixo e melodia: cada toque troca a nota. Para uma nota durar mais, segure nela e arraste para o lado. Toque na parte esticada para encurtar. Toque no nome de uma linha (Baixo, Melodia...) para silenciar. Segure o dedo (ou o botão esquerdo do mouse) num quadrado para abrir o menu: nele dá para copiar uma linha e colar em outra. O botão direito do mouse apaga o quadrado na hora.</p>
 <div class="field"><div class="top"><label for="bpm">Velocidade</label><output id="bo"></output></div><input id="bpm" type="range" min="70" max="180" value="100"><div class="ends"><span>devagar</span><span>rápido</span></div></div>
 <div class="field"><div class="top"><label for="volm">Volume da melodia</label><output id="vmo"></output></div><input id="volm" type="range" min="0" max="100" value="60"></div>
 <div class="field"><div class="top"><label for="vola">Volume do acompanhamento</label><output id="vao"></output></div><input id="vola" type="range" min="0" max="100" value="60"></div>
@@ -520,6 +522,17 @@ function eraseCell(b){
   if(isNote?S[t][s]===-1:!S[t][s])return;   // já estava vazio
   pushHist();S[t][s]=isNote?-1:0;refresh();changed();
 }
+/* copiar e colar linhas: a linha copiada fica guardada até fechar a página e pode ser colada em várias linhas.
+   Entre ritmo e nota há conversão: ligado vira a nota de casa; qualquer nota vira ligado */
+let rowClip=null;
+function isNoteTrack(t){return t==='bass'||t==='lead';}
+function trackLabel(t){return TRACKS.filter(function(x){return x[0]===t;})[0][1];}
+function clipSay(m){$('#clipst').textContent=m;}
+function convertRow(from,to,d){
+  const a=d.slice(),fn=isNoteTrack(from),tn=isNoteTrack(to);
+  if(fn===tn)return a;
+  return a.map(function(v){return tn?(v?0:-1):(v>=0?1:0);});
+}
 /* menu do toque longo (celular) */
 function closeMenu(){if(menuEl){menuEl.remove();menuEl=null;}}
 function openMenu(cell){
@@ -547,6 +560,20 @@ function openMenu(cell){
     const dica=document.createElement('p');dica.className='small';dica.textContent='Toque numa nota para ouvir. Toque de novo para escolher.';m.appendChild(dica);
     const pv=s>0?S[t][s-1]:-1;
     if(pv>=0||pv===-2)add(m,'Segurar a nota do passo anterior',act(function(){S[t][s]=-2;}));
+  }
+  /* "linha" = o que se vê na tela: 8 passos de uma trilha (ex.: Bumbo, passos 1 a 8) */
+  const h=Math.floor(s/8),seg=function(hh){return 'passos '+(hh*8+1)+' a '+(hh*8+8);};
+  add(m,'Copiar esta linha ('+label+', '+seg(h)+')',function(){
+    rowClip={t:t,h:h,d:S[t].slice(h*8,h*8+8)};closeMenu();cell.focus();
+    clipSay('Copiou a linha '+label+', '+seg(h)+'. Segure o dedo num passo de outra linha e escolha Colar.');
+  });
+  if(rowClip&&!(rowClip.t===t&&rowClip.h===h)){
+    const from=trackLabel(rowClip.t)+', '+seg(rowClip.h),conv=isNoteTrack(rowClip.t)!==isNote?(isNote?' (vira notas)':' (vira quadrados ligados)'):'';
+    add(m,'Colar aqui a linha copiada ('+from+')'+conv,act(function(){
+      const nv=convertRow(rowClip.t,t,rowClip.d);
+      for(let i=0;i<8;i++)S[t][h*8+i]=nv[i];
+      clipSay('Colou a linha '+from+' em '+label+', '+seg(h)+'. Só essa linha mudou. Dá para colar em outras ou usar Desfazer.');
+    }));
   }
   add(m,'Limpar a linha toda',act(function(){const n=S.len;for(let i=0;i<n;i++)S[t][i]=isNote?-1:0;}));
   if(!isNote){
