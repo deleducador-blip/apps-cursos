@@ -87,6 +87,19 @@ body[data-view=notas] .cell[data-note]:not([data-note="-1"]){background:var(--nc
 .cell[data-t=lead],.cell[data-t=bass]{touch-action:pan-y}
 .menu .notes .btn[aria-pressed=true]{outline:3px solid var(--fg);outline-offset:-3px}
 :root{--h:200}
+.slist{display:grid;gap:10px}
+.slot{border:2px solid var(--line);border-radius:12px;padding:10px;display:grid;gap:8px;background:var(--bg)}
+.slot[data-cur="1"]{border-color:var(--c)}
+.slot .hd{display:flex;gap:12px;align-items:center}
+.slot .ltr{font:900 40px/1 "Big Shoulders Display",Impact,sans-serif;color:var(--c);min-width:30px;text-align:center}
+.slot .ti{display:grid;gap:2px;min-width:0;flex:1}
+.slot .snm{font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.slot.empty .snm{color:var(--muted);font-weight:500}
+.slot .meta{color:var(--muted);font-size:14px}
+.slot .badge{font:500 11px/1 "JetBrains Mono",ui-monospace,monospace;text-transform:uppercase;letter-spacing:.08em;color:var(--c)}
+.slot .acts{display:flex;flex-wrap:wrap;gap:8px}
+.slot .acts .btn{min-height:44px;font-size:15px;padding:0 12px;flex:1 1 auto}
+.slot .ask{font-weight:700}
 </style></head><body>
 <main>
 <header class="hero"><span class="tag">Aula 9 · Arte para Jogos</span>
@@ -117,6 +130,19 @@ body[data-view=notas] .cell[data-note]:not([data-note="-1"]){background:var(--nc
 <div class="field"><div class="top"><label for="vola">Volume do acompanhamento</label><output id="vao"></output></div><input id="vola" type="range" min="0" max="100" value="60"></div>
 <p class="small">Acompanhamento = bumbo, caixa, chimbal e baixo. O equilíbrio entre os dois volumes vai junto para a música baixada.</p>
 <p class="small">Sem som? Aumente o volume de mídia do celular e, no iPhone, tire do modo silencioso.</p>
+</section>
+
+<section class="tool" id="slotsec"><h2 class="tag">Seus slots · guarde e experimente</h2>
+<p class="small">Guarde a batida num slot e experimente à vontade: ela fica segura. Para criar uma variação sem estragar a original, use Duplicar e mexa na cópia. O nome vem do campo "Nome da música", mais abaixo.</p>
+<p class="status" id="slnow"></p>
+<p class="small" id="slwarn" hidden>Este navegador não está deixando guardar dados. Os slots só valem enquanto esta página ficar aberta. Use Exportar para não perder a música.</p>
+<div class="slist" id="slots"></div>
+<div class="row"><button class="btn" id="slundo" type="button" hidden>↶ Voltar ao que estava na tela antes</button></div>
+<p class="status" id="slst" aria-live="polite"></p>
+<div class="row"><button class="btn" id="exp" type="button">⬇ Exportar projeto</button><button class="btn" id="imp" type="button">⬆ Importar projeto</button></div>
+<div id="exfb"></div>
+<p class="small">Os slots ficam neste aparelho e neste navegador. Para continuar a música em casa ou em outro computador, use Exportar (sai um arquivo .json) e depois Importar lá. O .wav serve para o jogo; o .json serve para continuar editando.</p>
+<input type="file" id="impf" accept=".json,application/json" hidden>
 </section>
 
 <section class="tool"><h2 class="tag">3 · Guarde a sua música</h2>
@@ -353,7 +379,8 @@ function restore(){
   pick('baiao',true);fresh=true;
 }
 function snap(){return JSON.parse(JSON.stringify(S));}
-function pushHist(){hist.push(snap());if(hist.length>30)hist.shift();}
+/* withX=true (abrir slot ou importar): o desfazer também devolve nome, volumes e o slot de origem */
+function pushHist(withX){const o=snap();if(withX)o._x={name:name,vm:+$('#volm').value,va:+$('#vola').value,cur:cur};hist.push(o);if(hist.length>30)hist.shift();}
 function pick(n,quiet){
   if(!quiet)pushHist();
   const keepLead=S.lead.slice();
@@ -486,6 +513,7 @@ function refresh(){
   st.voz.show(VOICE_LABELS.findIndex(function(x){return x[0]===S.voice;}));
   $('#bpm').value=S.bpm;$('#bo').textContent=S.bpm+' BPM';$('#vmo').textContent=$('#volm').value+'%';$('#vao').textContent=$('#vola').value+'%';$('#nm').value=name;
   $('#undo').disabled=!hist.length;
+  slotsSync();
 }
 function eraseCell(b){
   const t=b.dataset.t,s=+b.dataset.s,isNote=(t==='bass'||t==='lead');
@@ -596,7 +624,13 @@ mb.addEventListener('click',function(){setDrawer(dr.hidden);});
 document.addEventListener('pointerdown',function(e){if(!dr.hidden&&!dr.contains(e.target)&&!mb.contains(e.target))setDrawer(false);});
 document.addEventListener('keydown',function(e){if(e.key==='Escape'&&!dr.hidden)setDrawer(false);});
 $('#play').addEventListener('click',toggle);
-$('#undo').addEventListener('click',function(){const o=hist.pop();if(o){S=cleanSong(o);refresh();changed();}});
+function doUndo(){
+  const o=hist.pop();if(!o)return;
+  S=cleanSong(o);
+  if(o._x){name=String(o._x.name||'').slice(0,24);$('#volm').value=clp(o._x.vm);$('#vola').value=clp(o._x.va);cur=(o._x.cur&&slots[o._x.cur])?o._x.cur:null;saveSlots();}
+  refresh();changed();
+}
+$('#undo').addEventListener('click',doUndo);
 $('#surp').addEventListener('click',function(){pushHist();S.lead=randomMelody();refresh();changed();if(!playing)toggle();});
 (function(){
   const el=$('#bpm');
@@ -606,7 +640,7 @@ $('#surp').addEventListener('click',function(){pushHist();S.lead=randomMelody();
 })();
 $('#volm').addEventListener('input',function(){setVolume('lead',+$('#volm').value);$('#vmo').textContent=$('#volm').value+'%';persist();});
 $('#vola').addEventListener('input',function(){setVolume('acc',+$('#vola').value);$('#vao').textContent=$('#vola').value+'%';persist();});
-$('#nm').addEventListener('input',function(){name=$('#nm').value;persist();});
+$('#nm').addEventListener('input',function(){name=$('#nm').value;persist();slotsSync();});
 $('#theme').addEventListener('click',function(){
   const r=document.documentElement,dark=r.dataset.theme?r.dataset.theme==='dark':!matchMedia('(prefers-color-scheme: light)').matches;
   r.dataset.theme=dark?'light':'dark';
@@ -640,6 +674,148 @@ $('#save').addEventListener('click',async function(){
   }
   saving=false;btn.disabled=false;
 });
+/* ===== slots: guardar e abrir músicas neste aparelho + exportar/importar projeto ===== */
+const SKEY='batida-16-slots-v1',SLOTK=['A','B','C','D'];
+let slots={A:null,B:null,C:null,D:null},cur=null,storeOK=true,pending=null,focusKey=null,lastKey='';
+function clp(v){return Math.max(0,Math.min(100,+v||0));}
+function vol(v){return v==null?60:clp(v);}
+function okSong(x){return !!x&&['kick','snare','hat','bass','lead'].every(function(k){return Array.isArray(x[k])&&(x[k].length===16||x[k].length===32);});}
+function loadSlots(){
+  try{
+    const j=JSON.parse(localStorage.getItem(SKEY)||'null');
+    if(j&&j.slots){
+      SLOTK.forEach(function(k){const s=j.slots[k];if(s&&okSong(s.S))slots[k]={S:cleanSong(s.S),name:String(s.name||'').slice(0,24),vm:vol(s.vm),va:vol(s.va)};});
+      cur=(SLOTK.indexOf(j.cur)>=0&&slots[j.cur])?j.cur:null;
+    }
+  }catch(e){}
+  try{localStorage.setItem(SKEY+'-t','1');localStorage.removeItem(SKEY+'-t');}catch(e){storeOK=false;}
+}
+function saveSlots(){try{localStorage.setItem(SKEY,JSON.stringify({slots:slots,cur:cur}));return true;}catch(e){storeOK=false;return false;}}
+function say(m){$('#slst').textContent=m;}
+function sig(x,nm){return JSON.stringify(cleanSong(x))+'|'+nm;}
+function dirtyNow(){return !!(cur&&slots[cur]&&sig(slots[cur].S,slots[cur].name)!==sig(S,name));}
+function canUndoX(){return !!(hist.length&&hist[hist.length-1]._x);}
+function slotsKey(){return cur+'|'+dirtyNow()+'|'+isEmptySong(S,{})+'|'+canUndoX()+'|'+storeOK;}
+function slotsSync(){if(slotsKey()!==lastKey)renderSlots();}
+function slotName(d){return d.name||'Sem nome';}
+/* troca a batida da tela (o estado de antes entra no desfazer) */
+function applyWork(o,nm,vm,va,c){
+  pushHist(true);
+  S=cleanSong(o);name=String(nm||'').slice(0,24);
+  $('#volm').value=vol(vm);$('#vola').value=vol(va);
+  Object.keys(muted).forEach(function(k){muted[k]=false;});
+  cur=c;saveSlots();
+  refresh();changed();
+}
+function doSave(k){
+  slots[k]={S:cleanSong(S),name:name,vm:+$('#volm').value,va:+$('#vola').value};
+  cur=k;pending=null;saveSlots();
+  say(storeOK?'Guardou no slot '+k+'.':'Guardou no slot '+k+', mas só enquanto esta página ficar aberta. Use Exportar para não perder.');
+  focusKey=k+':save';renderSlots();
+}
+function actSave(k){
+  pending=null;
+  if(isEmptySong(S,{})){say('A batida da tela está vazia. Ligue alguns quadrados antes de guardar.');focusKey=k+':save';renderSlots();return;}
+  if(slots[k]&&cur!==k){pending={k:k,t:'save'};focusKey=k+':no';renderSlots();return;}   // slot de outra música: pergunta antes de trocar
+  doSave(k);
+}
+function actOpen(k){
+  const d=slots[k];if(!d)return;pending=null;
+  applyWork(d.S,d.name,d.vm,d.va,k);
+  say('Abriu o slot '+k+'. Se quiser voltar ao que estava na tela antes, use o botão acima deste aviso ou o Desfazer.');
+  focusKey=k+':open';renderSlots();
+}
+function actDup(k){
+  const d=slots[k];if(!d)return;pending=null;
+  const to=SLOTK.filter(function(x){return !slots[x];})[0];
+  if(!to){say('Todos os slots estão cheios. Apague um para poder duplicar.');focusKey=k+':dup';renderSlots();return;}
+  slots[to]={S:cleanSong(d.S),name:slotName(d).slice(0,16)+' (cópia)',vm:d.vm,va:d.va};
+  saveSlots();say('Copiou o slot '+k+' para o slot '+to+'. Abra o slot '+to+' para mexer na cópia.');
+  focusKey=k+':dup';renderSlots();
+}
+function actDel(k){pending={k:k,t:'del'};focusKey=k+':no';renderSlots();}
+function confirmYes(){
+  if(!pending)return;const k=pending.k,t=pending.t;pending=null;
+  if(t==='save')doSave(k);
+  else{slots[k]=null;if(cur===k)cur=null;saveSlots();say('Apagou o slot '+k+'.');focusKey=k+':save';renderSlots();}
+}
+function confirmNo(){const k=pending&&pending.k;pending=null;focusKey=k?k+':'+(slots[k]?'open':'save'):null;renderSlots();}
+function renderSlots(){
+  lastKey=slotsKey();
+  const box=$('#slots');box.innerHTML='';
+  const empty=isEmptySong(S,{});
+  $('#slnow').textContent=cur?'Na tela agora: slot '+cur+(dirtyNow()?' (você mexeu depois de guardar).':' (igual ao que está guardado).'):(empty?'Na tela agora: batida vazia.':'Na tela agora: uma batida que ainda não está em nenhum slot.');
+  $('#slwarn').hidden=storeOK;
+  $('#slundo').hidden=!canUndoX();
+  SLOTK.forEach(function(k){
+    const d=slots[k],card=document.createElement('div');
+    card.className='slot'+(d?'':' empty');card.dataset.cur=cur===k?'1':'0';card.setAttribute('role','group');card.setAttribute('aria-label','Slot '+k+(d?': '+slotName(d):': vazio'));
+    const hd=document.createElement('div');hd.className='hd';
+    const ltr=document.createElement('span');ltr.className='ltr';ltr.textContent=k;ltr.setAttribute('aria-hidden','true');
+    const ti=document.createElement('div');ti.className='ti';
+    if(cur===k){const bg=document.createElement('span');bg.className='badge';bg.textContent='na tela'+(dirtyNow()?' · alterada':'');ti.appendChild(bg);}
+    const nm=document.createElement('span');nm.className='snm';nm.textContent=d?slotName(d):'Vazio';
+    const mt=document.createElement('span');mt.className='meta';
+    if(d){const md=MOODS.filter(function(x){return x[0]===d.S.mood;})[0];mt.textContent=d.S.bpm+' BPM · '+(md?md[1]:'')+' · '+d.S.len+' passos';}
+    else mt.textContent='Toque em "Guardar aqui" para guardar a batida da tela.';
+    ti.appendChild(nm);ti.appendChild(mt);hd.appendChild(ltr);hd.appendChild(ti);card.appendChild(hd);
+    const acts=document.createElement('div');acts.className='acts';
+    const add=function(label,key,fn,aria){const b=document.createElement('button');b.type='button';b.className='btn';b.textContent=label;b.dataset.k=k+':'+key;if(aria)b.setAttribute('aria-label',aria);b.addEventListener('click',fn);acts.appendChild(b);return b;};
+    if(pending&&pending.k===k){
+      const ask=document.createElement('p');ask.className='ask';
+      ask.textContent=pending.t==='del'?'Apagar o slot '+k+' ("'+slotName(d)+'")? Não dá para desfazer.':'O slot '+k+' já tem "'+slotName(d)+'". Trocar pela batida que está na tela?';
+      card.appendChild(ask);
+      add(pending.t==='del'?'Sim, apagar':'Sim, trocar','yes',confirmYes);
+      add('Não','no',confirmNo);
+    }else{
+      add('Guardar aqui','save',function(){actSave(k);},'Guardar a batida da tela no slot '+k);
+      if(d){
+        add('Abrir','open',function(){actOpen(k);},'Abrir o slot '+k);
+        add('Duplicar','dup',function(){actDup(k);},'Duplicar o slot '+k+' para um slot vazio');
+        add('Apagar','del',function(){actDel(k);},'Apagar o slot '+k);
+      }
+    }
+    card.appendChild(acts);box.appendChild(card);
+  });
+  if(focusKey){const f=box.querySelector('[data-k="'+focusKey+'"]');focusKey=null;if(f)f.focus({preventScroll:true});}
+}
+$('#slundo').addEventListener('click',function(){doUndo();say('Voltou ao que estava na tela antes.');});
+document.addEventListener('keydown',function(e){if(e.key==='Escape'&&pending)confirmNo();});
+/* exportar / importar: arquivo .json com a batida, o nome e os volumes */
+let exUrl=null;
+$('#exp').addEventListener('click',function(){
+  if(isEmptySong(S,{})){say('A batida da tela está vazia. Ligue alguns quadrados antes de exportar.');return;}
+  const data={app:'batida-16',versao:1,name:name,S:cleanSong(S),vm:+$('#volm').value,va:+$('#vola').value};
+  const blob=new Blob([JSON.stringify(data)],{type:'application/json'});
+  const file='batida-16-'+(slug(name,20)||'minha')+'-projeto.json';
+  const a=document.createElement('a'),u=URL.createObjectURL(blob);a.href=u;a.download=file;document.body.appendChild(a);a.click();a.remove();
+  setTimeout(function(){URL.revokeObjectURL(u);},30000);
+  if(exUrl){try{URL.revokeObjectURL(exUrl);}catch(e){}}
+  exUrl=URL.createObjectURL(blob);
+  const fb=$('#exfb');fb.innerHTML='';
+  const p=document.createElement('p');p.className='small';p.textContent='Se o arquivo não baixou, toque no link:';
+  const l=document.createElement('a');l.href=exUrl;l.download=file;l.textContent='⬇ '+file;l.style.cssText='color:var(--c);font-weight:700';
+  fb.style.cssText='display:grid;gap:6px';fb.appendChild(p);fb.appendChild(l);
+  say('Baixou "'+file+'". Para continuar a música depois, use Importar projeto.');
+});
+$('#imp').addEventListener('click',function(){$('#impf').click();});
+$('#impf').addEventListener('change',function(){
+  const f=this.files&&this.files[0];this.value='';
+  if(!f)return;
+  const bad=function(){say('Não consegui abrir esse arquivo. Use um arquivo .json baixado da Batida 16 com "Exportar projeto".');};
+  if(f.size>300000){bad();return;}
+  const rd=new FileReader();
+  rd.onerror=bad;
+  rd.onload=function(){
+    let j;try{j=JSON.parse(String(rd.result));}catch(e){bad();return;}
+    if(!j||j.app!=='batida-16'||!okSong(j.S)){bad();return;}
+    applyWork(j.S,j.name,j.vm,j.va,null);
+    say('Abriu o projeto'+(name?' "'+name+'"':'')+'. Ele está só na tela: use Guardar aqui num slot para não perder. Para voltar ao que estava antes, use o botão acima deste aviso ou o Desfazer.');
+    renderSlots();
+  };
+  rd.readAsText(f);
+});
+loadSlots();
 build();restore();refresh();
 if(fresh){st.ritmo.show(0);setDrawer(true);}
 })();
